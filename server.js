@@ -23,34 +23,51 @@ const app = express();
 const port = process.env.PORT || 3001;
 let transport;
 
-// Enable CORS for all routes
+// Enhanced CORS setup for SSE
 app.use(cors({
-  origin: '*'
+  origin: '*',
+  methods: ['GET', 'POST', 'OPTIONS'],
+  allowedHeaders: ['Content-Type', 'Authorization'],
+  credentials: true
 }));
+
+// Debug middleware
+app.use((req, res, next) => {
+  console.log(`${new Date().toISOString()} - ${req.method} ${req.url}`);
+  next();
+});
 
 // SSE endpoint for server-to-client communication
 app.get("/sse", (req, res) => {
+  console.log("SSE connection attempt from:", req.headers.origin || 'unknown origin');
+  
+  // Set essential SSE headers
+  res.setHeader('Content-Type', 'text/event-stream');
+  res.setHeader('Cache-Control', 'no-cache');
+  res.setHeader('Connection', 'keep-alive');
+  res.setHeader('X-Accel-Buffering', 'no'); // For Nginx specifically
+  
+  // Disable compression for SSE
+  res.setHeader('Content-Encoding', 'identity');
+  
+  // Keep the connection alive
+  res.flushHeaders();
+  
+  // Send a comment to keep the connection open
+  const keepAlive = setInterval(() => {
+    res.write(': keep-alive\n\n');
+    // Force flush data to the client
+    res.flush && res.flush();
+  }, 30000);
+  
+  // Create transport
   transport = new SSEServerTransport("/messages", res);
-  server.connect(transport);
-  console.log("SSE connection established");
-});
-
-// Message endpoint for client-to-server communication
-app.post("/messages", (req, res) => {
-  if (transport) {
-    console.log("Received message from client");
-    transport.handlePostMessage(req, res);
-  } else {
-    res.status(503).send("Transport not ready");
+  
+  try {
+    server.connect(transport);
+    console.log("SSE connection established successfully");
+  } catch (error) {
+    console.error("Error connecting to transport:", error);
   }
-});
-
-// Health check endpoint
-app.get("/health", (req, res) => {
-  res.status(200).send("OK");
-});
-
-// Start the server
-app.listen(port, () => {
-  console.log(`Ping server running at http://localhost:${port}`);
-});
+  
+  
